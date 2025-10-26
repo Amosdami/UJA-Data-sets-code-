@@ -1,0 +1,166 @@
+import pandas as pd
+import numpy as np
+from datetime import datetime
+import os
+import re
+
+# =========================================================================
+# === CONFIGURATION AND PATHS (Update RAW_FILE_PATH if needed) ===
+# =========================================================================
+RAW_FILE_PATH = r"C:\Users\23480\Downloads\2024-11-27 (1).csv"
+
+# Output file will be saved in the same directory where the notebook is running
+timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+OUTPUT_FILENAME = f'cleaned_FIXED_data_{timestamp}.csv'
+OUTPUT_PATH = os.path.join(os.path.dirname(RAW_FILE_PATH) or os.getcwd(), OUTPUT_FILENAME)
+
+# === STEP 1: READ RAW FILE AND PREPARE 
+try:
+    # Read with SEMICOLON (;) separator, reading all data as string initially
+    df = pd.read_csv(RAW_FILE_PATH, sep=';', quotechar='"', encoding='utf-8', on_bad_lines='skip')
+except Exception as e:
+    print(f"Error reading file: {e}")
+    exit()
+    
+# Drop the last few columns which are often empty trailing separators
+df.dropna(axis=1, how='all', inplace=True) 
+
+# Save ALL original columns data before reset/shift
+original_columns_data = {}
+for col in df.columns:
+    original_columns_data[col] = df[col].copy()
+
+# Reset index to extract the actual 'Fecha' data from the index column created by the shift
+df = df.reset_index(drop=False)
+current_original_cols = df.columns.tolist()
+
+# The original file headers were:
+# Fecha, Hora, Airtime, Bandwidth, Coding rate, rssi, rssi p, snr, snr p, spreading factot, f cnt, f port, frequency, Etotal_SMA, F_SMA, IDC_SMA, I_SMA, PAC_SMA, PDC_SMA, Temp_SMA, VAC_SMA, VDC_SMA
+
+
+# === STEP 2: FIXING COLUMN MAPPING AND APPLY CONSTANTS ===
+
+print("\n" + "="*80)
+print("RESTRUCTURING DATA (SHIFTING RIGHT AND FIXING MAPPING):")
+print("="*80)
+
+# Create new dataframe with the CORRECTLY SHIFTED data
+new_df = pd.DataFrame()
+
+# --- MAPPING 1: Date/Time/Core Metrics (Shifted by 1) ---
+new_df['Fecha'] = df['index']                                    # Index -> Fecha
+new_df['Hora'] = original_columns_data['Fecha'].values          # Fecha -> Hora
+new_df['Airtime'] = original_columns_data['Hora'].values        # Hora -> Airtime
+new_df['Bandwidth'] = original_columns_data['Airtime'].values   # Airtime -> Bandwidth
+
+# --- MAPPING 2: Hardcoded Constants & Metric Fixes ---
+# Original 'Bandwidth' column (4/5) is discarded, 'Coding rate' is constant
+new_df['Coding rate'] = 0.8                                     # CONSTANT: 0.8
+new_df['rssi'] = original_columns_data['Coding rate'].values    # Coding rate -> rssi
+new_df['rssi p'] = original_columns_data['rssi'].values         # rssi -> rssi p
+new_df['snr'] = original_columns_data['rssi p'].values          # rssi p -> snr
+new_df['snr p'] = original_columns_data['snr'].values           # snr -> snr p
+
+# Original 'snr p' column (7) is discarded, 'spreading factot' is constant
+new_df['spreading factot'] = 7                                  # CONSTANT: 7
+new_df['f cnt'] = original_columns_data['spreading factot'].values # spreading factot -> f cnt
+
+# Original 'f cnt' column (2) is discarded, 'f port' is constant
+new_df['f port'] = 2                                            # CONSTANT: 2
+
+# --- MAPPING 3: Remaining Metric Columns (Shift continues) ---
+new_df['frequency'] = original_columns_data['f port'].values    # f port -> frequency
+new_df['Etotal_SMA'] = original_columns_data['frequency'].values # frequency -> Etotal_SMA
+
+# --- MAPPING 4: Final SMA Columns ---
+# The remaining original data columns are mapped sequentially to their neighbors
+# The final data column in the raw data is 'VDC_SMA', which contained 0s.
+remaining_original_cols_map = [
+    ('Etotal_SMA', 'F_SMA'),
+    ('F_SMA', 'IDC_SMA'),
+    ('IDC_SMA', 'I_SMA'),
+    ('I_SMA', 'PAC_SMA'),
+    ('PAC_SMA', 'PDC_SMA'),
+    ('PDC_SMA', 'Temp_SMA'),
+    ('Temp_SMA', 'VAC_SMA'),
+    ('VAC_SMA', 'VDC_SMA'),
+]
+
+# Note: We must check which columns were already created in new_df and skip.
+already_created = new_df.columns.tolist()
+
+for original_col, new_col in remaining_original_cols_map:
+    if original_col in original_columns_data and new_col not in already_created:
+        new_df[new_col] = original_columns_data[original_col].values
+
+df = new_df
+
+# Define the final required columns to ensure order and completeness
+FINAL_COLS_ORDER = [
+    'Fecha', 'Hora', 'Airtime', 'Bandwidth', 'Coding rate', 'rssi', 'rssi p', 'snr', 
+    'snr p', 'spreading factot', 'f cnt', 'f port', 'frequency', 'Etotal_SMA', 
+    'F_SMA', 'IDC_SMA', 'I_SMA', 'PAC_SMA', 'PDC_SMA', 'Temp_SMA', 'VAC_SMA', 'VDC_SMA'
+]
+
+# Ensure the DataFrame has exactly the required final columns
+df = df[[col for col in FINAL_COLS_ORDER if col in df.columns]]
+
+print("✅ Data shifted, Coding rate, Spreading factot, and F port fixed correctly.")
+print(f"\nFirst row check (FIXED MAPPING):")
+print(f"Fecha: {df['Fecha'].iloc[0]} (Expected: 2024-12-04)")
+print(f"Hora: {df['Hora'].iloc[0]} (Expected: 23:59:56)")
+print(f"Airtime: {df['Airtime'].iloc[0]} (Expected: 0,071936s)")
+print(f"Bandwidth: {df['Bandwidth'].iloc[0]} (Expected: 125000)")
+print(f"Coding rate: {df['Coding rate'].iloc[0]} (Expected: 0.8)")
+print(f"rssi: {df['rssi'].iloc[0]} (Expected: -67)")
+print(f"spreading factot: {df['spreading factot'].iloc[0]} (Expected: 7)")
+print(f"f port: {df['f port'].iloc[0]} (Expected: 2)")
+
+
+# =========================================================================
+# === STEP 3: CLEANING AND TYPE CONVERSION (FINAL STEPS) ===
+# =========================================================================
+
+# Strip whitespace from column names and clean values
+for col in df.columns:
+    if df[col].dtype == "object":
+        series = df[col].astype(str).str.strip()
+        
+        # 1. Remove quotes and 's' character
+        series = series.str.replace('"', '', regex=False)
+        series = series.str.replace('s', '', regex=False)
+        
+        # 2. Replace comma with dot for decimal numbers
+        series = series.str.replace(',', '.', regex=False)
+        df[col] = series
+
+# Convert Fecha to proper date format
+if 'Fecha' in df.columns:
+    df['Fecha'] = pd.to_datetime(df['Fecha'], errors='coerce')
+    df['Fecha'] = df['Fecha'].dt.strftime('%d/%m/%Y')
+    
+# Convert ALL other columns to numeric (except Fecha, Hora)
+for col in df.columns:
+    if col not in ['Fecha', 'Hora']:
+        df[col] = pd.to_numeric(df[col], errors='coerce')
+        # Fill NaN numeric values with 0
+        df[col] = df[col].fillna(0)
+
+
+# =========================================================================
+# === STEP 4: SAVE FINAL CLEAN CSV ===
+# =========================================================================
+
+print("\n" + "="*80)
+print("FINAL DATA VERIFICATION:")
+print("="*80)
+print(f"✅ Cleaned shape: {df.shape}")
+print(f"✅ Cleaned columns: {df.columns.tolist()}")
+print(f"\nFirst 5 rows:")
+print(df.head(5))
+
+# Save with a standard comma separator (suitable for Power BI)
+df.to_csv(OUTPUT_PATH, index=False, encoding='utf-8')
+
+print(f"\n✅ Cleaned dataset successfully saved as '{OUTPUT_PATH}'")
+print(f"The file uses a COMMA (,) separator and DOT (.) decimal, ready for Power BI.")

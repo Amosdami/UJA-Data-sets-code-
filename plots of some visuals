@@ -1,0 +1,68 @@
+# =========================================================================
+# === SCATTER PLOT VISUALIZATIONS FOR ELECTRICAL DATA ===
+# =========================================================================
+
+import pandas as pd
+import matplotlib.pyplot as plt
+
+# === 1. LOAD CLEANED DATA ===
+DATA_PATH = r"C:\Users\23480\Desktop\uja DATASETS\new data set\cleaned_FIXED_indexed_data_12-07 (2).csv"
+df = pd.read_csv(DATA_PATH)
+
+# === 2. CLEAN / CONVERT TIME COLUMN ===
+# Handle different possible column names
+time_col = None
+for col in df.columns:
+    if col.lower() in ['hora', 'time', 'datetime']:
+        time_col = col
+        break
+
+if time_col is None:
+    raise ValueError("No time or hour column found in the dataset!")
+
+# Convert 'Hora' or 'datetime' to datetime type if not already
+if not pd.api.types.is_datetime64_any_dtype(df[time_col]):
+    try:
+        df[time_col] = pd.to_datetime(df[time_col], format='%H:%M:%S', errors='coerce')
+    except Exception:
+        df[time_col] = pd.to_datetime(df[time_col], errors='coerce')
+
+# Sort chronologically (optional but helpful)
+df = df.sort_values(by=time_col)
+
+# =========================================================================
+# === 3. SCATTER PLOTS ===
+# =========================================================================
+
+# --- Scatter 1: Voltage vs Current ---
+if 'VAC_SMA' in df.columns and 'IDC_SMA' in df.columns:
+    plt.figure(figsize=(10, 6))
+    plt.scatter(df['VAC_SMA'], df['IDC_SMA'], c='blue', alpha=0.6, edgecolors='k')
+    plt.title('Voltage vs Current (VAC_SMA vs IDC_SMA)', fontsize=16)
+    plt.xlabel('VAC_SMA (Volts)', fontsize=12)
+    plt.ylabel('IDC_SMA (Amps)', fontsize=12)
+    plt.grid(True, linestyle='--', alpha=0.7)
+    plt.tight_layout()
+    plt.show()
+
+# --- Scatter 2: Power vs Voltage ---
+if 'PDC_SMA' in df.columns and 'Hora' in df.columns:
+    plt.figure(figsize=(10, 6))
+    plt.scatter(df['Hora'], df['PDC_SMA'], c='red', alpha=0.6, edgecolors='k')
+    plt.title('Power vs Voltage (PDC_SMA vs Hora)', fontsize=16)
+    plt.xlabel('Hora)', fontsize=12)
+    plt.ylabel('PDC_SMA (Watts)', fontsize=12)
+    plt.grid(True, linestyle='--', alpha=0.7)
+    plt.tight_layout()
+    plt.show()
+
+# --- Scatter 3: Power vs Time ---
+if 'PDC_SMA' in df.columns:
+    plt.figure(figsize=(12, 6))
+    plt.scatter(df[time_col], df['PDC_SMA'], c='green', alpha=0.5, edgecolors='none')
+    plt.title('Power Over Time (PDC_SMA vs Time)', fontsize=16)
+    plt.xlabel('Time of Day', fontsize=12)
+    plt.ylabel('PDC_SMA (Watts)', fontsize=12)
+    plt.grid(True, linestyle='--', alpha=0.7)
+    plt.tight_layout()
+    plt.show()

@@ -1,0 +1,159 @@
+import pandas as pd
+import numpy as np
+from datetime import datetime
+import os
+import re
+
+# =========================================================================
+# === CONFIGURATION AND PATHS (⚠️ ACTION REQUIRED: Update this path) ===
+# =========================================================================
+# Update this path to the exact location of your raw file (e.g., "C:\...\2024-12-06.csv")
+RAW_FILE_PATH = r"C:\Users\23480\Desktop\uja DATASETS\2024-12-07.csv"
+
+# Output file will be saved in the same directory as the raw file or current working directory
+timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+OUTPUT_FILENAME = f'cleaned_FIXED_indexed_data_{timestamp}.csv'
+OUTPUT_PATH = os.path.join(os.path.dirname(RAW_FILE_PATH) or os.getcwd(), OUTPUT_FILENAME)
+
+# === STEP 1: READ RAW FILE AND PREPARE FOR SHIFT ===
+try:
+    # Read with SEMICOLON (;) separator, reading all data as string initially
+    df = pd.read_csv(RAW_FILE_PATH, sep=';', quotechar='"', encoding='utf-8', on_bad_lines='skip')
+except Exception as e:
+    print(f"Error reading file: {e}")
+    exit()
+    
+# Drop the last few columns which are often empty trailing separators
+df.dropna(axis=1, how='all', inplace=True) 
+
+# Save ALL original columns data before reset/shift
+original_columns_data = {}
+for col in df.columns:
+    original_columns_data[col] = df[col].copy()
+
+# Reset index to extract the actual 'Fecha' data from the index column created by the shift
+df = df.reset_index(drop=False)
+current_original_cols = df.columns.tolist()
+
+# =========================================================================
+# === STEP 2: FIX COLUMN MAPPING AND APPLY CONSTANTS (DATA SHIFTING) ===
+# =========================================================================
+print("="*80)
+print("RESTRUCTURING DATA (SHIFTING RIGHT AND FIXING MAPPING):")
+print("="*80)
+
+# Create new dataframe with the CORRECTLY SHIFTED data
+new_df = pd.DataFrame()
+
+# --- MAPPING 1: Date/Time/Core Metrics (Shifted by 1) ---
+new_df['Fecha'] = df['index']                                    # Index -> Fecha
+new_df['Hora'] = original_columns_data['Fecha'].values            # Fecha -> Hora
+new_df['Airtime'] = original_columns_data['Hora'].values          # Hora -> Airtime
+new_df['Bandwidth'] = original_columns_data['Airtime'].values     # Airtime -> Bandwidth
+
+# --- MAPPING 2: Hardcoded Constants & Metric Fixes ---
+new_df['Coding rate'] = 0.8                                      # CONSTANT: 0.8
+new_df['rssi'] = original_columns_data['Coding rate'].values      # Coding rate -> rssi
+new_df['rssi p'] = original_columns_data['rssi'].values           # rssi -> rssi p
+new_df['snr'] = original_columns_data['rssi p'].values            # rssi p -> snr
+new_df['snr p'] = original_columns_data['snr'].values             # snr -> snr p
+
+new_df['spreading factot'] = 7                                   # CONSTANT: 7
+new_df['f cnt'] = original_columns_data['spreading factot'].values # spreading factot -> f cnt
+
+new_df['f port'] = 2                                             # CONSTANT: 2
+
+# --- MAPPING 3 & 4: Remaining Metric Columns ---
+new_df['frequency'] = original_columns_data['f port'].values      # f port -> frequency
+new_df['Etotal_SMA'] = original_columns_data['frequency'].values  # frequency -> Etotal_SMA
+
+remaining_original_cols_map = [
+    ('Etotal_SMA', 'F_SMA'), ('F_SMA', 'IDC_SMA'), ('IDC_SMA', 'I_SMA'), 
+    ('I_SMA', 'PAC_SMA'), ('PAC_SMA', 'PDC_SMA'), ('PDC_SMA', 'Temp_SMA'), 
+    ('Temp_SMA', 'VAC_SMA'), ('VAC_SMA', 'VDC_SMA'),
+]
+
+already_created = new_df.columns.tolist()
+
+for original_col, new_col in remaining_original_cols_map:
+    if original_col in original_columns_data and new_col not in already_created:
+        new_df[new_col] = original_columns_data[original_col].values
+
+df = new_df
+
+# Define the final required columns to ensure order and completeness
+FINAL_COLS_ORDER = [
+    'Fecha', 'Hora', 'Airtime', 'Bandwidth', 'Coding rate', 'rssi', 'rssi p', 'snr', 
+    'snr p', 'spreading factot', 'f cnt', 'f port', 'frequency', 'Etotal_SMA', 
+    'F_SMA', 'IDC_SMA', 'I_SMA', 'PAC_SMA', 'PDC_SMA', 'Temp_SMA', 'VAC_SMA', 'VDC_SMA'
+]
+
+# Ensure the DataFrame has exactly the required final columns
+df = df[[col for col in FINAL_COLS_ORDER if col in df.columns]]
+
+print("✅ Data shifted, fixed columns applied.")
+
+# =========================================================================
+# === STEP 3: CLEANING AND TYPE CONVERSION (INTEGER/DECIMAL FIX) ===
+# =========================================================================
+
+# Strip whitespace from column names and clean values
+for col in df.columns:
+    if df[col].dtype == "object":
+        series = df[col].astype(str).str.strip()
+        
+        # 1. Remove quotes and 's' character
+        series = series.str.replace('"', '', regex=False)
+        series = series.str.replace('s', '', regex=False)
+        
+        # 2. Replace comma with dot for decimal numbers
+        series = series.str.replace(',', '.', regex=False)
+        df[col] = series
+
+# Convert Fecha to proper date format
+if 'Fecha' in df.columns:
+    df['Fecha'] = pd.to_datetime(df['Fecha'], errors='coerce')
+    df['Fecha'] = df['Fecha'].dt.strftime('%d/%m/%Y')
+    
+# Define columns that MUST be decimal (float)
+DECIMAL_COLS = ['Airtime', 'Coding rate', 'snr', 'PDC_SMA', 'PAC_SMA', 'IDC_SMA', 'I_SMA', 'F_SMA', 'Etotal_SMA', 'VAC_SMA', 'VDC_SMA'  ] # snr must also be float
+
+# Convert ALL other columns to numeric (except Fecha, Hora) and apply INT/FLOAT logic
+for col in df.columns:
+    if col not in ['Fecha', 'Hora']:
+        # Convert to numeric and fill NaNs with 0
+        df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
+        
+        # Convert to integer type if the column is NOT a designated decimal column
+        if col not in DECIMAL_COLS:
+            df[col] = df[col].astype(int)
+
+print("✅ String cleaning and type conversion (INT/FLOAT) completed.")
+
+# =========================================================================
+# === NEW STEP: ADD ROW INDEX COLUMN (For Power BI) ===
+# =========================================================================
+# Insert the Row_Index column as the first column, starting from 1
+df.insert(0, 'Row_Index', df.index + 1)
+
+print("✅ New column 'Row_Index' added successfully.")
+
+# =========================================================================
+# === STEP 4: SAVE FINAL CLEAN CSV ===
+# =========================================================================
+
+print("\n" + "="*80)
+print("FINAL DATA VERIFICATION AND SAVE:")
+print("="*80)
+
+# Final shape and verification
+print(f"✅ Final shape: {df.shape}")
+print(f"✅ Final columns: {df.columns.tolist()}")
+print(f"\nFirst 5 rows (including Row_Index):")
+print(df.head(5))
+
+# Save with a standard comma separator
+df.to_csv(OUTPUT_PATH, index=False, encoding='utf-8')
+
+print(f"\n✅ Cleaned and indexed dataset successfully saved as '{OUTPUT_PATH}'")
+print(f"The file is ready for Power BI. Use the 'Row_Index' column for non-aggregated scatter plot details.")

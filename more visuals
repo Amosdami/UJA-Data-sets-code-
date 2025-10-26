@@ -1,0 +1,102 @@
+import pandas as pd
+import matplotlib.pyplot as plt
+import seaborn as sns
+
+# =========================================================================
+# === CONFIGURATION AND DATA LOADING (Assumes file is accessible) ===
+# =========================================================================
+FILE_PATH = r"C:\Users\23480\Desktop\uja DATASETS\new data set\cleaned_FIXED_indexed_data_12-07 (2).csv"
+
+try:
+    df = pd.read_csv(FILE_PATH)
+except:
+    print(f"Error: Could not load file at {FILE_PATH}")
+    exit()
+
+# === DATA PREPARATION FOR VISUALIZATION ===
+if 'Fecha' in df.columns and 'Hora' in df.columns:
+    try:
+        df['DateTime_Str'] = df['Fecha'].astype(str) + ' ' + df['Hora'].astype(str)
+        # Assuming format: Day/Month/Year Hour:Minute:Second
+        df['Timestamp'] = pd.to_datetime(df['DateTime_Str'], format='%d/%m/%Y %H:%M:%S', errors='coerce')
+        df.dropna(subset=['Timestamp'], inplace=True)
+        df.set_index('Timestamp', inplace=True)
+    except Exception as e:
+        print(f"Warning: Failed to create Timestamp index. Error: {e}")
+        
+# Ensure numeric types
+for col in ['VAC_SMA', 'PAC_SMA', 'rssi', 'snr']:
+    if col in df.columns:
+        df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
+
+# =========================================================================
+# === VISUALIZATION TEMPLATE: LINE CHARTS AND HISTOGRAMS (Inline Display) ===
+# =========================================================================
+
+sns.set_style("whitegrid")
+plt.rcParams['figure.figsize'] = (15, 6)
+plt.rcParams['font.size'] = 12
+
+print("\n--- Generating Visualizations (Displaying Inline) ---")
+
+# --- LINE CHARTS (Time Series Analysis) ---
+
+# 1. Line Chart: Electrical Power and Voltage Trend
+if 'VAC_SMA' in df.columns and 'PAC_SMA' in df.columns and df.index.name == 'Timestamp':
+    plt.figure(figsize=(18, 6))
+    plt.plot(df.index, df['VAC_SMA'], label='AC Voltage (VAC_SMA)', alpha=0.7)
+    plt.plot(df.index, df['PAC_SMA'], label='AC Power (PAC_SMA)', alpha=0.7)
+    plt.title('Time-Series Trend: AC Voltage and Power', fontsize=16)
+    plt.xlabel('Time', fontsize=14)
+    plt.ylabel('Value', fontsize=14)
+    plt.legend()
+    plt.tight_layout()
+    plt.savefig('line_chart_voltage_power.png')
+    plt.show() # 🔑 FIX: Use plt.show() to display inline
+else:
+    print("❌ Cannot generate Line Chart 1: Required columns or Timestamp index are missing.")
+
+
+# 2. Line Chart: Communication Metrics Trend
+if 'rssi' in df.columns and 'snr' in df.columns and df.index.name == 'Timestamp':
+    plt.figure(figsize=(18, 6))
+    plt.plot(df.index, df['rssi'], label='RSSI (dBm)', alpha=0.7)
+    plt.plot(df.index, df['snr'], label='SNR (dB)', alpha=0.7)
+    plt.title('Time-Series Trend: Communication Quality (RSSI & SNR)', fontsize=16)
+    plt.xlabel('Time', fontsize=14)
+    plt.ylabel('Signal Strength (dB)', fontsize=14)
+    plt.legend()
+    plt.tight_layout()
+    plt.savefig('line_chart_rssi_snr.png')
+    plt.show() # 🔑 FIX: Use plt.show() to display inline
+else:
+    print("❌ Cannot generate Line Chart 2: Required columns or Timestamp index are missing.")
+
+# --- HISTOGRAMS (Distribution Analysis) ---
+
+# 3. Histogram: Distribution of AC Voltage
+if 'VAC_SMA' in df.columns:
+    plt.figure(figsize=(10, 6))
+    sns.histplot(df['VAC_SMA'], kde=True, bins=30, color='skyblue')
+    plt.title('Distribution of AC Voltage (VAC_SMA)', fontsize=16)
+    plt.xlabel('VAC_SMA', fontsize=14)
+    plt.ylabel('Frequency / Density', fontsize=14)
+    plt.tight_layout()
+    plt.savefig('histogram_voltage.png')
+    plt.show() # 🔑 FIX: Use plt.show() to display inline
+else:
+    print("❌ Cannot generate Histogram 1: Required column (VAC_SMA) is missing.")
+
+
+# 4. Histogram: Distribution of RSSI
+if 'rssi' in df.columns:
+    plt.figure(figsize=(10, 6))
+    sns.histplot(df['rssi'], kde=True, bins=30, color='indianred')
+    plt.title('Distribution of RSSI (Received Signal Strength Indicator)', fontsize=16)
+    plt.xlabel('RSSI (dBm)', fontsize=14)
+    plt.ylabel('Frequency / Density', fontsize=14)
+    plt.tight_layout()
+    plt.savefig('histogram_rssi.png')
+    plt.show() # 🔑 FIX: Use plt.show() to display inline
+else:
+    print("❌ Cannot generate Histogram 2: Required column (rssi) is missing.")

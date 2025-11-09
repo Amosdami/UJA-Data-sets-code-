@@ -7,15 +7,33 @@ import re
 # =========================================================================
 # === CONFIGURATION AND PATHS (⚠️ ACTION REQUIRED: Update this path) ===
 # =========================================================================
-# Update this path to the exact location of your raw file (e.g., "C:\...\2024-12-06.csv")
-RAW_FILE_PATH = r"C:\Users\23480\Desktop\uja DATASETS\2024-12-07.csv"
+# Update this path to the exact location of your raw file (e.g., "C:\\...\\2024-12-06.csv")
+RAW_FILE_PATH = r"C:\Users\23480\Desktop\uja DATASETS\2024-12-17.csv"
 
-# Output file will be saved in the same directory as the raw file or current working directory
-timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-OUTPUT_FILENAME = f'cleaned_FIXED_indexed_data_{timestamp}.csv'
-OUTPUT_PATH = os.path.join(os.path.dirname(RAW_FILE_PATH) or os.getcwd(), OUTPUT_FILENAME)
+# === CUSTOM OUTPUT DIRECTORY ===
+# Cleaned file will be saved inside "data path" folder
+OUTPUT_DIR = r"C:\Users\23480\Desktop\uja DATASETS\data path"
 
+# Create the folder if it doesn't already exist
+os.makedirs(OUTPUT_DIR, exist_ok=True)
+
+# =========================================================================
+# === BUILD OUTPUT FILENAME BASED ON RAW FILE NAME ===
+# =========================================================================
+raw_filename = os.path.basename(RAW_FILE_PATH)         # e.g. '2024-12-17.csv'
+base_name, ext = os.path.splitext(raw_filename)        # ('2024-12-17', '.csv')
+OUTPUT_FILENAME = f"{base_name}_CLEANED{ext}"          # '2024-12-17_CLEANED.csv'
+OUTPUT_PATH = os.path.join(OUTPUT_DIR, OUTPUT_FILENAME)
+
+# Optional: Avoid overwriting if file already exists
+if os.path.exists(OUTPUT_PATH):
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    OUTPUT_FILENAME = f"{base_name}_CLEANED_{timestamp}{ext}"
+    OUTPUT_PATH = os.path.join(OUTPUT_DIR, OUTPUT_FILENAME)
+
+# =========================================================================
 # === STEP 1: READ RAW FILE AND PREPARE FOR SHIFT ===
+# =========================================================================
 try:
     # Read with SEMICOLON (;) separator, reading all data as string initially
     df = pd.read_csv(RAW_FILE_PATH, sep=';', quotechar='"', encoding='utf-8', on_bad_lines='skip')
@@ -52,20 +70,20 @@ new_df['Airtime'] = original_columns_data['Hora'].values          # Hora -> Airt
 new_df['Bandwidth'] = original_columns_data['Airtime'].values     # Airtime -> Bandwidth
 
 # --- MAPPING 2: Hardcoded Constants & Metric Fixes ---
-new_df['Coding rate'] = 0.8                                      # CONSTANT: 0.8
-new_df['rssi'] = original_columns_data['Coding rate'].values      # Coding rate -> rssi
-new_df['rssi p'] = original_columns_data['rssi'].values           # rssi -> rssi p
-new_df['snr'] = original_columns_data['rssi p'].values            # rssi p -> snr
-new_df['snr p'] = original_columns_data['snr'].values             # snr -> snr p
+new_df['Coding rate'] = 0.8                                       # CONSTANT: 0.8
+new_df['rssi'] = original_columns_data['Coding rate'].values       # Coding rate -> rssi
+new_df['rssi p'] = original_columns_data['rssi'].values            # rssi -> rssi p
+new_df['snr'] = original_columns_data['rssi p'].values             # rssi p -> snr
+new_df['snr p'] = original_columns_data['snr'].values              # snr -> snr p
 
-new_df['spreading factot'] = 7                                   # CONSTANT: 7
+new_df['spreading factot'] = 7                                    # CONSTANT: 7
 new_df['f cnt'] = original_columns_data['spreading factot'].values # spreading factot -> f cnt
 
-new_df['f port'] = 2                                             # CONSTANT: 2
+new_df['f port'] = 2                                              # CONSTANT: 2
 
 # --- MAPPING 3 & 4: Remaining Metric Columns ---
-new_df['frequency'] = original_columns_data['f port'].values      # f port -> frequency
-new_df['Etotal_SMA'] = original_columns_data['frequency'].values  # frequency -> Etotal_SMA
+new_df['frequency'] = original_columns_data['f port'].values       # f port -> frequency
+new_df['Etotal_SMA'] = original_columns_data['frequency'].values   # frequency -> Etotal_SMA
 
 remaining_original_cols_map = [
     ('Etotal_SMA', 'F_SMA'), ('F_SMA', 'IDC_SMA'), ('IDC_SMA', 'I_SMA'), 
@@ -116,15 +134,12 @@ if 'Fecha' in df.columns:
     df['Fecha'] = df['Fecha'].dt.strftime('%d/%m/%Y')
     
 # Define columns that MUST be decimal (float)
-DECIMAL_COLS = ['Airtime', 'Coding rate', 'snr', 'PDC_SMA', 'PAC_SMA', 'IDC_SMA', 'I_SMA', 'F_SMA', 'Etotal_SMA', 'VAC_SMA', 'VDC_SMA'  ] # snr must also be float
+DECIMAL_COLS = ['Airtime', 'Coding rate', 'snr', 'PDC_SMA', 'PAC_SMA', 'IDC_SMA', 'I_SMA', 'F_SMA', 'Etotal_SMA', 'VAC_SMA', 'VDC_SMA']
 
 # Convert ALL other columns to numeric (except Fecha, Hora) and apply INT/FLOAT logic
 for col in df.columns:
     if col not in ['Fecha', 'Hora']:
-        # Convert to numeric and fill NaNs with 0
         df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
-        
-        # Convert to integer type if the column is NOT a designated decimal column
         if col not in DECIMAL_COLS:
             df[col] = df[col].astype(int)
 
@@ -155,5 +170,6 @@ print(df.head(5))
 # Save with a standard comma separator
 df.to_csv(OUTPUT_PATH, index=False, encoding='utf-8')
 
-print(f"\n✅ Cleaned and indexed dataset successfully saved as '{OUTPUT_PATH}'")
+print(f"\n✅ Cleaned and indexed dataset successfully saved at:\n{OUTPUT_PATH}")
 print(f"The file is ready for Power BI. Use the 'Row_Index' column for non-aggregated scatter plot details.")
+

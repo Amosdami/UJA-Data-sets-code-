@@ -1,0 +1,184 @@
+import pandas as pd
+import numpy as np
+from datetime import datetime
+import os
+
+# =========================================================================
+# === CONFIGURATION AND PATHS (UNCHANGED) ===
+# =========================================================================
+# Input path for the raw file
+RAW_FILE_PATH = r"C:\Users\23480\Downloads\2025-02-23.csv"
+
+# Custom Output Directory
+OUTPUT_DIR = r"C:\Users\23480\Desktop\streamlit_dashboard\house 2"
+
+# Create the folder if it doesn't already exist
+os.makedirs(OUTPUT_DIR, exist_ok=True)
+
+# ⚠️ CRITICAL FIX: The full 23-column header list, including S_SMA
+EXPECTED_COLS = [
+    'Fecha', 'Hora', 'Airtime', 'Bandwidth', 'Coding rate', 
+    'rssi', 'rssi p', 'snr', 'snr p', 'spreading factot', 'f cnt', 'f port', 
+    'frequency', 'Etotal_SMA', 'F_SMA', 'IDC_SMA', 'I_SMA', 'PAC_SMA', 
+    'PDC_SMA', 'S_SMA', 'Temp_SMA', 'VAC_SMA', 'VDC_SMA' # Added S_SMA
+]
+
+# === BUILD OUTPUT FILENAME BASED ON RAW FILE NAME ===
+raw_filename = os.path.basename(RAW_FILE_PATH)
+base_name, ext = os.path.splitext(raw_filename)
+OUTPUT_FILENAME = f"{base_name}_CLEANED{ext}"
+OUTPUT_PATH = os.path.join(OUTPUT_DIR, OUTPUT_FILENAME)
+
+# Optional: Avoid overwriting if file already exists
+if os.path.exists(OUTPUT_PATH):
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    OUTPUT_FILENAME = f"{base_name}_CLEANED_{timestamp}{ext}"
+    OUTPUT_PATH = os.path.join(OUTPUT_DIR, OUTPUT_FILENAME)
+
+print("="*80)
+print("SPANISH CSV CLEANER - STARTING PROCESS")
+print("="*80)
+print(f"Input file: {RAW_FILE_PATH}")
+print(f"Output file: {OUTPUT_PATH}")
+print()
+
+# =========================================================================
+# === STEP 1: READ RAW FILE (ROBUST FIX FOR 23 COLUMNS / 24 FIELDS) ===
+# =========================================================================
+try:
+    # FIX: We now expect 23 columns. The data rows have 24 fields due to a trailing delimiter.
+    # We use header=None, skiprows=1, and then select the first 23 columns (indices 0 to 22).
+    df = pd.read_csv(
+        RAW_FILE_PATH, 
+        sep=';',
+        header=None,  
+        skiprows=1,   
+        engine='python', # Python engine is more robust for mixed/messy CSV structures
+        encoding='utf-8', 
+        dtype=str,    
+        keep_default_na=False
+    )
+    
+    # CRITICAL FIX: Drop the extra, empty 24th column and assign the correct 23 column names
+    df = df.iloc[:, :len(EXPECTED_COLS)]
+    df.columns = EXPECTED_COLS
+    
+    print(f"✅ File read and 23 column names assigned successfully. Initial shape: {df.shape}")
+except Exception as e:
+    print(f"❌ Error reading file: {e}")
+    exit()
+
+# Display first few rows of raw data for verification
+print("\n" + "="*80)
+print("RAW DATA SAMPLE (first 3 rows):")
+print("="*80)
+print(df.head(3).to_string())
+
+
+# =========================================================================
+# === STEP 2: CLEAN DATA VALUES (SPANISH FORMAT) ===
+# =========================================================================
+print("\n" + "="*80)
+print("CLEANING DATA VALUES:")
+print("="*80)
+
+for col in df.columns:
+    series = df[col].astype(str).str.strip()
+    series = series.str.replace('"', '', regex=False)
+    series = series.str.replace('s', '', regex=False)
+    series = series.str.replace(',', '.', regex=False)
+    df[col] = series
+
+print("✅ Removed quotes, 's' characters, and replaced commas with dots")
+
+# =========================================================================
+# === STEP 3: HANDLE SPECIAL COLUMNS ===
+# =========================================================================
+print("\n" + "="*80)
+print("HANDLING SPECIAL COLUMNS:")
+print("="*80)
+
+# Create a single Timestamp column (Timestamp is inserted at index 2)
+if 'Fecha' in df.columns and 'Hora' in df.columns:
+    df.insert(2, 'Timestamp', df['Fecha'].astype(str) + ' ' + df['Hora'].astype(str))
+    df['Timestamp'] = pd.to_datetime(df['Timestamp'], format='%Y-%m-%d %H:%M:%S', errors='coerce')
+    print("✅ New 'Timestamp' column created and converted to Datetime.")
+else:
+    print("⚠️ Warning: 'Fecha' or 'Hora' column not found!")
+
+# Handle Coding rate: Convert "4/5" to 0.8
+if 'Coding rate' in df.columns:
+    def convert_coding_rate(val):
+        val = str(val).strip()
+        if '/' in val:
+            try:
+                parts = val.split('/')
+                return float(parts[0]) / float(parts[1])
+            except:
+                return np.nan
+        else:
+            try:
+                return float(val)
+            except:
+                return np.nan
+    
+    df['Coding rate'] = df['Coding rate'].apply(convert_coding_rate)
+    df['Coding rate'] = pd.to_numeric(df['Coding rate'], errors='coerce') 
+    
+    print("✅ Coding rate converted from fractions (4/5 → 0.8) to float.")
+
+# =========================================================================
+# === STEP 4: CONVERT DATA TYPES ===
+# =========================================================================
+print("\n" + "="*80)
+print("CONVERTING DATA TYPES:")
+print("="*80)
+
+# Convert all non-date/time columns to numeric (float), errors become NaN
+for col in df.columns:
+    if col in ['Fecha', 'Hora', 'Timestamp']:
+        continue
+    df[col] = pd.to_numeric(df[col], errors='coerce')
+
+print("✅ All remaining columns converted to numeric (float).")
+
+# =========================================================================
+# === STEP 5: ADD ROW INDEX COLUMN (For Power BI) ===
+# =========================================================================
+# Insert the Row_Index column as the first column
+df.insert(0, 'Row_Index', range(1, len(df) + 1))
+print("\n✅ New column 'Row_Index' added successfully.")
+
+# =========================================================================
+# === STEP 6: VERIFY FINAL COLUMN ORDER (Keeping existing order + new ones) ===
+# =========================================================================
+# Reorder to match the intended flow (Row_Index, Timestamp, then all others in their original position)
+FINAL_COLS_ORDER = ['Row_Index', 'Timestamp'] + EXPECTED_COLS
+existing_final_cols = [col for col in FINAL_COLS_ORDER if col in df.columns]
+
+# IMPORTANT: Since you requested NOT to reorder, we use the original column list
+# to maintain the order, only adding Row_Index and Timestamp at the start.
+current_cols = df.columns.tolist()
+reordered_cols = ['Row_Index', 'Timestamp'] + [col for col in current_cols if col not in ['Row_Index', 'Timestamp']]
+df = df[reordered_cols]
+print("✅ Columns reordered to start with 'Row_Index' and 'Timestamp', maintaining the relative order of the rest.")
+
+# =========================================================================
+# === STEP 7: SAVE FINAL CLEAN CSV ===
+# =========================================================================
+print("\n" + "="*80)
+print("FINAL DATA VERIFICATION AND SAVE:")
+print("="*80)
+
+print(f"✅ Final shape: {df.shape}")
+
+# Save the file to the specified output path
+df.to_csv(OUTPUT_PATH, index=False, encoding='utf-8')
+
+print("\n" + "="*80)
+print("✅ PROCESS COMPLETE!")
+print("="*80)
+print(f"Cleaned and indexed dataset successfully saved at:")
+print(f"'{OUTPUT_PATH}'")
+print("\n**The script is now fixed to include the S_SMA column and handle the extra trailing delimiter.**")
+print("="*80)
